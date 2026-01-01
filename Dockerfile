@@ -68,7 +68,9 @@ RUN apk add --no-cache ${RUNTIME_DEPENDENCIES}                                  
     adduser -h /config -s /bin/nologin -u 99 -D abc                                                                                                                                 && \
     chmod +x /etc/firstrun/*.sh                                                                                                                                                     && \
     mkdir -p /config/guacamole /config/log /var/run/tomcat                                                                                                                          && \
-    ln -s ${PREFIX_DIR}/webapp/guacamole.war /usr/local/tomcat/webapps/ROOT.war                                                                                                     && \
+    mkdir -p /usr/local/tomcat/webapps/ROOT                                                                                                                                         && \
+    cd /usr/local/tomcat/webapps/ROOT                                                                                                                                               && \
+    jar -xf ${PREFIX_DIR}/webapp/guacamole.war                                                                                                                                      && \
     sed -i '/<\/Host>/i \        <Valve className=\"org.apache.catalina.valves.RemoteIpValve\"\n               remoteIpHeader=\"x-forwarded-for\" />' /usr/local/tomcat/conf/server.xml
 
 EXPOSE 8080
