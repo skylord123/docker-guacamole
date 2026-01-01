@@ -1,0 +1,141 @@
+name: Auto Update Guacamole Version
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get latest Guacamole version
+        id: guac-version
+        run: |
+          # Fetch latest version from Docker Hub API
+          LATEST_VERSION=$(curl -s "https://hub.docker.com/v2/repositories/guacamole/guacamole/tags/?page_size=100" | \
+            jq -r '.results[].name' | \
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
+            sort -V | \
+            tail -n 1)
+          
+          echo "latest_version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+          echo "Latest Guacamole version: ${LATEST_VERSION}"
+
+      - name: Get current build version
+        id: current-version
+        run: |
+          # Get the latest tag from your repository
+          CURRENT_VERSION=$(git tag --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 | sed 's/^v//')
+          
+          # If no tags exist, use 0.0.0
+          if [ -z "$CURRENT_VERSION" ]; then
+            CURRENT_VERSION="0.0.0"
+          fi
+          
+          echo "current_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "Current build version: ${CURRENT_VERSION}"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          LATEST="${{ steps.guac-version.outputs.latest_version }}"
+          CURRENT="${{ steps.current-version.outputs.current_version }}"
+          
+          if [ "$LATEST" != "$CURRENT" ]; then
+            echo "needs_build=true" >> $GITHUB_OUTPUT
+            echo "New version available: ${LATEST} (current: ${CURRENT})"
+          else
+            echo "needs_build=false" >> $GITHUB_OUTPUT
+            echo "Already up to date: ${CURRENT}"
+          fi
+
+      - name: Update Dockerfile
+        if: steps.compare.outputs.needs_build == 'true'
+        run: |
+          LATEST="${{ steps.guac-version.outputs.latest_version }}"
+          
+          # Update the ARG GUAC_VER line in Dockerfile
+          sed -i "s/^ARG GUAC_VER=.*/ARG GUAC_VER=${LATEST}/" Dockerfile
+          
+          echo "Updated Dockerfile to version ${LATEST}"
+
+      - name: Build and push Docker image
+        if: steps.compare.outputs.needs_build == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.guac-version.outputs.latest_version }}
+          build-args: |
+            GUAC_VER=${{ steps.guac-version.outputs.latest_version }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:latest
+          cache-to: type=inline
+
+      - name: Commit and push changes
+        if: steps.compare.outputs.needs_build == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add Dockerfile
+          git commit -m "chore: update Guacamole to version ${{ steps.guac-version.outputs.latest_version }}"
+          git tag -a "v${{ steps.guac-version.outputs.latest_version }}" -m "Release version ${{ steps.guac-version.outputs.latest_version }}"
+          
+          git push origin main
+          git push origin "v${{ steps.guac-version.outputs.latest_version }}"
+
+      - name: Create GitHub Release
+        if: steps.compare.outputs.needs_build == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v${{ steps.guac-version.outputs.latest_version }}"
+          name: "Guacamole v${{ steps.guac-version.outputs.latest_version }}"
+          body: |
+            Automated build for Apache Guacamole version ${{ steps.guac-version.outputs.latest_version }}
+            
+            ## Changes
+            - Updated base Guacamole version to ${{ steps.guac-version.outputs.latest_version }}
+            
+            ## Docker Images
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.guac-version.outputs.latest_version }}
+            docker pull ghcr.io/${{ github.repository }}:latest
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Version Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest Guacamole Version**: ${{ steps.guac-version.outputs.latest_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Current Build Version**: ${{ steps.current-version.outputs.current_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Required**: ${{ steps.compare.outputs.needs_build }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.compare.outputs.needs_build }}" == "true" ]; then
+            echo "- **Status**: ✅ New version built and pushed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Status**: ℹ️ No update needed" >> $GITHUB_STEP_SUMMARY
+          fi
