@@ -97,11 +97,15 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
+          # Get the current branch name
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Current branch: ${BRANCH}"
+          
           git add Dockerfile
           git commit -m "chore: update Guacamole to version ${{ steps.guac-version.outputs.latest_version }}"
           git tag -a "v${{ steps.guac-version.outputs.latest_version }}" -m "Release version ${{ steps.guac-version.outputs.latest_version }}"
           
-          git push origin main
+          git push origin ${BRANCH}
           git push origin "v${{ steps.guac-version.outputs.latest_version }}"
 
       - name: Create GitHub Release
