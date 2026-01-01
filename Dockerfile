@@ -28,7 +28,9 @@ ENV HOME=/config
 ENV LC_ALL=C.UTF-8
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US.UTF-8
-ENV LD_LIBRARY_PATH=${PREFIX_DIR}/lib
+ENV CATALINA_HOME=/usr/local/tomcat
+ENV PATH=/usr/local/tomcat/bin:$PATH
+ENV LD_LIBRARY_PATH=${PREFIX_DIR}/lib:/usr/local/tomcat/native-jni-lib
 ENV GUACD_LOG_LEVEL=info
 ENV LOGBACK_LEVEL=info
 ENV GUACAMOLE_HOME=/config/guacamole
@@ -36,6 +38,7 @@ ENV GUACAMOLE_HOME=/config/guacamole
 ### Copy build artifacts into this stage
 COPY --from=server ${PREFIX_DIR} ${PREFIX_DIR}
 COPY --from=client ${PREFIX_DIR} ${PREFIX_DIR}
+COPY --from=client /usr/local/tomcat /usr/local/tomcat
 
 ARG RUNTIME_DEPENDENCIES="  \
     ca-certificates         \
@@ -63,21 +66,10 @@ ADD image /
 RUN apk add --no-cache ${RUNTIME_DEPENDENCIES}                                                                                                                                      && \
     xargs apk add --no-cache < ${PREFIX_DIR}/DEPENDENCIES                                                                                                                           && \
     adduser -h /config -s /bin/nologin -u 99 -D abc                                                                                                                                 && \
-    adduser -h /opt/tomcat -s /bin/false -D tomcat                                                                                                                                  && \
-    TOMCAT_VERSION=$(wget -qO- https://tomcat.apache.org/download-80.cgi | grep "8\.5\.[0-9]\+</a>" | sed -e 's|.*>\(.*\)<.*|\1|g')                                                 && \
-    wget https://dlcdn.apache.org/tomcat/tomcat-8/v"$TOMCAT_VERSION"/bin/apache-tomcat-"$TOMCAT_VERSION".tar.gz                                                                     && \
-    tar -xf apache-tomcat-"$TOMCAT_VERSION".tar.gz                                                                                                                                  && \
-    mv apache-tomcat-"$TOMCAT_VERSION"/* /opt/tomcat                                                                                                                                && \
-    rmdir apache-tomcat-"$TOMCAT_VERSION"                                                                                                                                           && \
-    find /opt/tomcat -type d -print0 | xargs -0 chmod 700                                                                                                                           && \
-    chmod +x /opt/tomcat/bin/*.sh                                                                                                                                                   && \
-    mkdir -p /var/lib/tomcat/webapps /var/log/tomcat                                                                                                                                && \
-    ln -s ${PREFIX_DIR}/guacamole.war /var/lib/tomcat/webapps/ROOT.war                                                                                                              && \
     chmod +x /etc/firstrun/*.sh                                                                                                                                                     && \
-    mkdir -p /config/guacamole /config/log/tomcat /var/lib/tomcat/temp /var/run/tomcat                                                                                              && \
-    ln -s /opt/tomcat/conf /var/lib/tomcat/conf                                                                                                                                     && \
-    ln -s /config/log/tomcat /var/lib/tomcat/logs                                                                                                                                   && \
-    sed -i '/<\/Host>/i \        <Valve className=\"org.apache.catalina.valves.RemoteIpValve\"\n               remoteIpHeader=\"x-forwarded-for\" />' /opt/tomcat/conf/server.xml
+    mkdir -p /config/guacamole /config/log /var/run/tomcat                                                                                                                          && \
+    ln -s ${PREFIX_DIR}/webapp/guacamole.war /usr/local/tomcat/webapps/ROOT.war                                                                                                     && \
+    sed -i '/<\/Host>/i \        <Valve className=\"org.apache.catalina.valves.RemoteIpValve\"\n               remoteIpHeader=\"x-forwarded-for\" />' /usr/local/tomcat/conf/server.xml
 
 EXPOSE 8080
 
@@ -87,7 +79,7 @@ CMD [ "/etc/firstrun/firstrun.sh" ]
 
 
 ############################
-### Build image with MariaDB 
+### Build image with MariaDB
 FROM nomariadb
 ARG GUAC_VER
 LABEL version=$GUAC_VER
