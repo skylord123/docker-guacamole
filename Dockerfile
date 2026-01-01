@@ -1,7 +1,7 @@
 ### Dockerfile for guacamole
 ### Includes the mysql authentication module preinstalled
 
-ARG GUAC_VER=1.6.0
+ARG GUAC_VER=1.5.4
 
 ########################
 ### Get Guacamole Server
@@ -70,7 +70,7 @@ RUN apk add --no-cache ${RUNTIME_DEPENDENCIES}                                  
     mkdir -p /config/guacamole /config/log /var/run/tomcat                                                                                                                          && \
     mkdir -p /usr/local/tomcat/webapps/ROOT                                                                                                                                         && \
     cd /usr/local/tomcat/webapps/ROOT                                                                                                                                               && \
-    jar -xf ${PREFIX_DIR}/webapp/guacamole.war                                                                                                                                      && \
+    unzip -q ${PREFIX_DIR}/webapp/guacamole.war                                                                                                                                     && \
     sed -i '/<\/Host>/i \        <Valve className=\"org.apache.catalina.valves.RemoteIpValve\"\n               remoteIpHeader=\"x-forwarded-for\" />' /usr/local/tomcat/conf/server.xml
 
 EXPOSE 8080
